@@ -1,0 +1,14 @@
+M Device control script begins
+
+# sends command that gets 2 data frames
+C SET_SOME_DATA
+H 0212
+H 10
+
+# another one dangerous with CRCs
+C SOME_IMPORTANT_CMD
+X
+H 236A
+X
+
+M ready

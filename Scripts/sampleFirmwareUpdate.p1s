@@ -1,1 +1,29 @@
-M TBD
+M Firmware update script begins
+
+# Let's assume there are 2 firmware versions
+F
+
+? T4.23
+J update-4.23
+Q
+
+? T5.23
+J update-5.23
+Q
+
+?   
+M nothing to update
+
+: update-4.23
+C FLASHFW
+D0FBBBBBBBBBBBBBBB
+D0FBBBBBBBBBBBBBBB
+E
+M ready 4.23
+
+: update-5.23
+C FLASHFW
+D0FBBBBBBBBBBBBBBB
+D0FBBBBBBBBBBBBBBB
+E
+M ready 5.23

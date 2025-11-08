@@ -1,1 +1,18 @@
-M TBD
+M Configuration script begins
+
+# let's check is it the proper firmware that 
+# supports the following configurations
+V
+? T1.234.12.3b
+
+H
+P param1=12
+P param2=3.14
+P param3=apple
+
+A
+S
+# here it will report status
+
+?
+M ready

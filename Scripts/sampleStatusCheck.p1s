@@ -1,1 +1,9 @@
-M TBD
+M Report and status script begins
+
+# we will request the device to present itself
+R
+V
+F
+S
+
+M ready

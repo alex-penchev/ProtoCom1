@@ -1,1 +1,9 @@
-M TBD
+M Data acquisition script begins
+
+# get data from the device and save to a file
+C GETDATA
+
+# here the requested data comes with DnBBBB...\n frame, write it
+W data-file.dat
+
+M ready

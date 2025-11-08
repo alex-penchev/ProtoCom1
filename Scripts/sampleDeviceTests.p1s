@@ -1,1 +1,22 @@
-M TBD
+M Device tests script begins
+
+C RUN_TEST_1
+? N
+J Error
+
+?
+C RUN_TEST_2
+? TNOK
+J Error
+
+?
+C RUN_TEST_3
+? HFF
+J Error
+
+?
+M OK!
+
+: Error
+M Error!
+Q
