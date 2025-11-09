@@ -1,0 +1,14 @@
+M Shows required user interaction in script
+
+# we will request the device to present itself
+R
+
+U Add some question here y/n?
+# scripts stops here and waits UI
+
+# here is some response
+? y
+M User answered yes
+
+?
+M ready

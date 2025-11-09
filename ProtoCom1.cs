@@ -9,8 +9,9 @@
 //                      * see at the bottom for more details *
 //
 //      responsibility: Distributed AS IS. Use at your own risk.
+//      github:         https://github.com/alex-penchev/ProtoCom1
 //---------------------------------------------------------------------------
-//      version:        0.0.1 (pre-release)
+//      version:        0.0.1
 //      created on:     Nov 01, 2025
 //      last update:    Nov 01, 2025
 //      authors (c):    Alexander Penchev (Distributed under GPLv3 License)
@@ -18,8 +19,9 @@
 //--------------------------------------------------------------------------- 
 //      dependencies:   .Net Core 8.0 and above, System.IO.Ports package
 //
-//          Protocol description and definitions:  
-//          [1B Command]([1B Length for D,Z])([data 0...L-1])[1B \n termination]
+//      Protocol description and action chars:  
+//          [1B Action]([1B Length for D,Z])([data 0...L-1])[1B \n termination]
+//          \r is used to show new line within message
 //
 //          М Message/Manifesto (direct to user console, not sent)
 //          
@@ -74,7 +76,7 @@
 //              obj.DoSomeStuff(params);
 //---------------------------------------------------------------------------
 //      revisions:
-//      0.0.1   2025-11-001  Initial pre-release
+//      0.0.1   2025-11-01  Initial release
 //--------------------------------------------------------------------------- 
 
 using System;
@@ -93,17 +95,17 @@ namespace ProtoCom1Emb
     public class ProtoCom1
     {
         // --- Public interfaces ---
-        public delegate string InfoHandler(string message, bool bRequiresUI=false);
-        public delegate void CommandCallback(string command, string retString, byte[] retData);
+        public delegate void InfoHandler(string message, bool bRequiresUI=false);
+        public delegate void CommandCallback(string sentCmd, string retText, byte[] retData);
 
         // --- Private members ---
+        TaskCompletionSource<string> _tcs = new();
         int _maxSubCalls = 5;
         char _command;
         int _length;
         string _sCOMPort = "";
         Dictionary<string, List<CommandInfo>> _dRoutines = [];
         Dictionary<string, string> _dVariables = [];
-        string[] _scriptRows = [];
         SerialPort? _serialPort=null;
 
         string _lastRow = "";
@@ -137,15 +139,19 @@ namespace ProtoCom1Emb
             _infoHandler?.Invoke(message);
             Console.WriteLine(message);
         }
-        public bool LoadFromFile(string filePath)
+        public async void LoadFromFile(string filePath)
         {
             try
             {
-                _scriptRows = File.ReadAllLines(filePath);
+                // Reset state
+                _dRoutines = [];
+                _dVariables = [];
+
+                string [] scriptRows = File.ReadAllLines(filePath);
                 //_dRoutines.Add(Path.GetFileNameWithoutExtension(filePath), lines);
                 List<CommandInfo> commands = [];
                 int lineNumber = 0;
-                foreach (var line in _scriptRows)
+                foreach (var line in scriptRows)
                 {
                     lineNumber++;
                     string lineClean = line.Trim();
@@ -153,8 +159,16 @@ namespace ProtoCom1Emb
                         continue;
                     if(lineClean.StartsWith('O'))
                     {
-                        // Callculate MD5 checksum, check
-                        // ??
+                        string combined = "";
+                        for(int i=0; i<lineNumber-1; i++)
+                        {
+                            combined += scriptRows[i] + "\n";
+                        }
+                        if(CalcMD5(combined, lineClean) == false)
+                        {
+                            Log("Script error: MD5 hash mismatch");
+                            return;
+                        }
                     }
                     else if(!lineClean.StartsWith('D'))
                         commands.Add(new CommandInfo(line));
@@ -179,7 +193,7 @@ namespace ProtoCom1Emb
                         if (lastRoutine == null)
                         {
                             Log("Script error: Routine name missing after ':'");
-                            return false;
+                            return;
                         }
                     }
                     else
@@ -187,59 +201,67 @@ namespace ProtoCom1Emb
                 }
                 _dRoutines.Add(lastRoutine, routineCommands);
 
-                return ExecuteScript();
+                await ExecuteScript(); // async method
+                return;
             }
             catch (Exception ex)
             {
-                Log($"Error loading script file: {ex.Message}");
+                Log($"Error scripting file: {filePath}");
+                Log($"{ex.Message}");
             }
-            return false;
+            return;
         }
         public bool SaveToFile(string filePath)
         {
             try
             {
-                using StreamWriter file = new (filePath, append: true);
+                using StreamWriter file = new(filePath, append: true);
                 file.WriteLine(_lastRow);
-                /*foreach (var routine in dRoutines)
-                {
-                    file.WriteLine($"[{routine.Key}]");
-                    foreach (var line in routine.Value)
-                    {
-                        file.WriteLine(line);
-                    }
-                }*/
+               
                 return true;
             }
             catch { }
             return false;
         }
+        /// <summary>
+        /// Conditional check
+        /// == equal | <> not equal
+        /// </summary>
         public bool CheckCondition(string condition)
         {
             string c1 = "";
             string c2 = "";
             condition = condition.Trim();
+            string delimiter = "==";
+            if (condition.Contains("<>"))
+                delimiter = "<>";
+
             if (condition.Length > 1)
             {
-                condition = condition[1..].Trim();
-                c1 = condition[..condition.IndexOf('=')].Trim();
-                c2 = condition[(condition.IndexOf('=') + 1)..].Trim();
-                if (c1 == "" || c2 == "")
+                c1 = condition = condition[1..].Trim();
+                if (condition.Contains(delimiter))
                 {
-                    Log($"Condition error in '{condition}'");
-                    return false;
-                }
-                if (c2[0] == '$')
-                    c2 = _dVariables[c2]; 
-                    
-                if (condition.Contains('='))
-                { 
-                    if(c1[0]=='$')
-                        c1 = _dVariables[c1];
+                    c1 = condition[..condition.IndexOf(delimiter)].Trim();
+                    c2 = condition[(condition.IndexOf(delimiter) + 2)..].Trim();
                 }
                 else
-                    c1 = _lastRow;
+                    c2 = _lastRow;
+
+                if (c1 == "" || c2 == "")
+                {
+                    Log($"Error: cannot process condition '{condition}'");
+                    _quitSignal = true;
+                    return false;
+                }
+
+                if (c1[0] == '$')
+                    c1 = _dVariables[c1];
+                if (c2[0] == '$')
+                    c2 = _dVariables[c2];
             }
+
+            if(delimiter == "<>")
+                return c1 != c2;
             return c1 == c2;
         }
         public void AddVariable(string variable, string? value = null)
@@ -255,30 +277,47 @@ namespace ProtoCom1Emb
             varName = varName.Replace(" ", "");
             _dVariables.Add(varName, value ?? "");
         }
-        public void Jump(string location)
+        public void UserInput(string text)
         {
+            _tcs.SetResult(text);
+        }
+        public async Task WaitForUserInputAsync()
+        {
+            string result = await _tcs.Task;
+            _tcs = new();
+
+            // TBD
+            
+        }
+        public async void Jump(string location)
+        {
+            // TBD
+            // check recursion level
             if (location.Length > 0)
                 location = location[1..].Trim();   
-            ExecuteScript(location);
+            await ExecuteScript(location);
         }
         public bool Send(string command, byte[]? data = null)
         {
-            // TBD
+            
+            // Variants: serial or other type of serial communication
             return false;
         }
         public bool SendHex(string command)
         {
-            // TBD
+            // TBD Format hex data
+            // Send
             return false;
         }
         public bool SendCRC(string command)
         {
-            // TBD
+            // TBD Calculate CRC
+            // Send
             return false;
         }
         public string LoadCommandFromFile(string filePath)
         {
-            // TBD
+            // TBD Load command from file and send
             return "";
         }
         public static string CalcChecksum(string text)
@@ -295,17 +334,16 @@ namespace ProtoCom1Emb
             }
             return checksum.ToString("x2");
         }
-        public static bool CalcMD5(List<string> lines, string sMD5Compare)
+        public static bool CalcMD5(string lines, string sMD5Compare)
         {
-            string combined = string.Join(Environment.NewLine, lines);
-            byte[] inputBytes = Encoding.UTF8.GetBytes(combined);
+            byte[] inputBytes = Encoding.UTF8.GetBytes(lines);
             byte[] hashBytes = MD5.HashData(inputBytes);
             StringBuilder sb = new();
             foreach (byte b in hashBytes)
             {
                 sb.Append(b.ToString("x2"));
             }
-            return sb.ToString() == sMD5Compare;
+            return sMD5Compare.Contains(sb.ToString());
         }
         public static byte[] GetBytes(string hexString)
         {             
@@ -343,20 +381,24 @@ namespace ProtoCom1Emb
 
             return false;
         }
-        public bool ExecuteScript(string routine="")
+        public async Task ExecuteScript(string routine="")
         {
             List<CommandInfo> commands = _dRoutines[routine];
             if (commands == null)
             {
                 Log($"Error: Routine '{routine}' not found");
-                return false;
+                return;
             }
 
             bool bOpen = true;
             foreach (var command in commands)
             {
                 if (command.Command == '?')
+                {
                     bOpen = CheckCondition(command.RawCommand);
+                    if(_quitSignal)
+                        return;
+                }
                 else if (bOpen)
                 {
                     switch (command.Command)
@@ -386,9 +428,10 @@ namespace ProtoCom1Emb
                         case 'Q':
                             _quitSignal = true;
                             _infoHandler?.Invoke("-QUIT!-");
-                            return true;
+                            return;
                         case 'U':
                             _infoHandler?.Invoke(command.RawCommand, true);
+                            await WaitForUserInputAsync();
                             break;
                         case 'W':
                             SaveToFile(_lastRow);
@@ -408,15 +451,11 @@ namespace ProtoCom1Emb
 
                 _commandCallback?.Invoke(command.RawCommand, _lastRow, _lastData);
                 if(_quitSignal)
-                    return true;
+                    return;
             
-                /*string? result = _infoHandler?.Invoke("alabala", false);
-                if (result == "")
-                {
-
-                }*/
+               
             }
-            return true;
+            return;
         }
         // --- Private Methods ---
     }
