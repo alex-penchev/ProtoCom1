@@ -1,0 +1,24 @@
+M Hello world
+$ a=12
+
+V
+$ b
+
+H 101010
+X
+
+U Request User Message
+$ user
+
+M Variable user:
+M $user
+
+? $a==12
+J sub
+
+?
+M bau
+Q
+
+: sub
+M miau
