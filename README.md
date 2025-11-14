@@ -2,7 +2,9 @@
 
   :heavy_exclamation_mark: Warning: this is a pre-released hobby project, currently under development
 
-  ProtoCom1  -=Q&A=-
+![console](https://github.com/alex-penchev/ProtoCom1/blob/main/console.png)
+
+-=Q&A=-
 
   ## What ProtoCom1 does?
       * One simple serial protocol addresses different embedded devices but
